@@ -1,9 +1,38 @@
 # CDBGT
-Code is on the way
-
-Circular RNAs (circRNAs) represent a distinctive class of non-coding RNAs with covalently closed loop structures that play crucial regulatory roles in drug response. While existing computational methods have achieved certain progress in prediction tasks, they primarily relied on circRNA genotypes and traditional molecular fingerprints, with limited utilization of multi-omics data and inadequate consideration of heterogeneous network topology.	
-	To address these limitations, this study proposed the CircRNA-Drug Bipartite Graph Transformer (CDBGT) framework to predict associations. Rather than limiting to associations between circRNA genotypes and drugs, this study integrated circRNA-drug resistance and targeting association information from multiple databases. This study employed pre-trained models RNA-FM and ChemBERTa to extract sequence and molecular fingerprint features respectively, and utilized multi-omics data to construct similarity matrices. The framework incorporated a bipartite graph transformer with topological positional encoding, comprehensively considering degree encoding, degree ranking encoding, and spectral encoding to extract topological information from heterogeneous networks.	
-	Experimental results shown that CDBGT performed stably in 5-fold cross-validation. On the resistance dataset, it achieved ROC-AUC of 0.9734 and PR-AUC of 0.9515, while on the targeting dataset it reached ROC-AUC of 0.8641. Compared with existing methods, it shown improvement of 4.3-22.1% in ROC-AUC metrics. Ablation experiments demonstrated the necessity of each module. Through literature-supported case studies, this work suggested potential directions for circRNA-based therapeutic research. 
+Abstract— Circular RNAs (circRNAs) represent a
+distinctive class of non-coding RNAs with covalently
+closed loop structures that play crucial regulatory
+roles in drug response. While existing computational
+methods have achieved certain progress in prediction
+tasks, they primarily relied on circRNA genotypes and
+traditional molecular fingerprints, with limited utilization
+of multi-omics data and inadequate consideration of
+heterogeneous network topology. To address these
+limitations, this study proposed the CircRNA-Drug
+Bipartite Graph Transformer (CDBGT) framework to
+predict associations. Rather than limiting to associations
+between circRNA genotypes and drugs, this study
+integrated circRNA-drug response and targeting
+association information from multiple databases. CDBGT
+employed pre-trained models RNA-FM and ChemBERTa
+to extract sequence and molecular fingerprint features
+respectively and utilized multi-omics data to construct
+similarity matrices. The framework incorporated a
+bipartite graph transformer with topological positional
+encoding, comprehensively considering degree encoding,
+degree ranking encoding and spectral encoding to
+extract topological information from heterogeneous
+networks. Experimental results shown that CDBGT
+performed stably in 5-fold cross-validation. On the
+Response dataset, it achieved ROC-AUC of 0.9674 and
+PR-AUC of 0.9540, while on the Targeting dataset it
+reached ROC-AUC of 0.8641. Compared with existing
+methods, It showed an improvement of 4.97 to 29.74
+percentage points in ROC-AUC. Ablation experiments
+demonstrated the necessity of each module. Through
+literature-supported case studies, this work suggested
+potential directions for circRNA-based therapeutic
+research.
 
 ### Main Libraries and Versions
 
