@@ -11,9 +11,9 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from tqdm import tqdm
 import shutil
 from datetime import datetime
-import argparse
+from types import SimpleNamespace
 import pandas as pd
-from model import CDGT, create_model, loss_function, update_train_arguments
+from model import CDGT, create_model, loss_function
 from utils import load_data, plot_metrics, normalize_features, analyze_graph_statistics, visualize_adjacency_matrices, \
     plot_loss_curves, plot_roc_curves
 
@@ -538,343 +538,44 @@ def train_cdgt_model(args):
     # ===== 返回预测结果数据 =====
     return avg_metrics, std_metrics, all_predictions_data
 
-def train_baseline_mlp(args):
-    """训练 MLP 基准模型"""
-    print(f"\n{'=' * 50}")
-    print(" 开始训练 MLP 基准模型 ".center(50, '='))
-    print(f"{'=' * 50}")
-    print(f"数据集类型: {args.dataset_type}")
-
-    # 记录开始时间
-    start_time = time.time()
-
-    # 设置随机种子
-    set_seed(args.seed)
-
-    # 创建结果目录
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    result_dir = f"./results/{timestamp}_{args.dataset_type}_MLP_Baseline"
-    plots_dir = f"{result_dir}/plots"
-    os.makedirs(result_dir, exist_ok=True)
-    os.makedirs(plots_dir, exist_ok=True)
-    print(f"结果将保存在: {result_dir}")
-
-    # 复制脚本文件
-    for script in ['model.py', 'train.py', 'utils.py']:
-        shutil.copy2(script, f"{result_dir}/{script}")
-
-    # 加载数据
-    data_path = f"./datasets/{args.dataset_type}"
-    _, _, CF, DF, _, edges, labels = load_data(data_path)
-
-    # 设置设备
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"使用设备: {device}")
-
-    # 交叉验证
-    kf = KFold(n_splits=args.n_folds, shuffle=True, random_state=args.seed)
-
-    # 提取边和标签数据
-    edge_data = np.array(edges.iloc[:, 0:2])
-    label_data = np.array(labels.iloc[:, 0])
-
-    # 结果文件
-    result_file = f"{result_dir}/result.txt"
-
-    # 记录参数
-    with open(result_file, 'w') as f:
-        f.write(f"{'=' * 20} MLP 基准模型设置 {'=' * 20}\n")
-        f.write(f"数据集类型: {args.dataset_type}\n")
-        f.write(f"训练轮数: {args.n_epochs}\n")
-        f.write(f"学习率: {args.lr}\n")
-        f.write(f"隐藏层: {args.hidden_dims}\n")
-        f.write(f"交叉验证折数: {args.n_folds}\n")
-        f.write(f"随机种子: {args.seed}\n")
-        f.write(f"防止数据泄露: 是\n")  # 添加防泄露标记
-        f.write("\n")
-
-    # 记录每折的指标
-    fold_metrics = []
-
-    # 进行交叉验证
-    for fold, (train_idx, test_idx) in enumerate(kf.split(edge_data)):
-        print(f"\n{'=' * 20} Fold {fold + 1}/{args.n_folds} {'=' * 20}")
-
-        # 准备训练和测试数据
-        X_train, X_test = edge_data[train_idx], edge_data[test_idx]
-        y_train, y_test = label_data[train_idx], label_data[test_idx]
-
-        print(f"训练集样本数: {len(X_train)}, 测试集样本数: {len(X_test)}")
-        print(f"训练集正样本: {sum(y_train)}, 负样本: {len(y_train) - sum(y_train)}")
-        print(f"测试集正样本: {sum(y_test)}, 负样本: {len(y_test) - sum(y_test)}")
-
-        # 提取circRNA和药物特征
-        c_features_train = torch.FloatTensor(np.array([CF[idx] for idx in X_train[:, 0]]))
-        d_features_train = torch.FloatTensor(np.array([DF[idx] for idx in X_train[:, 1]]))
-        labels_train = torch.FloatTensor(y_train)
-
-        c_features_test = torch.FloatTensor(np.array([CF[idx] for idx in X_test[:, 0]]))
-        d_features_test = torch.FloatTensor(np.array([DF[idx] for idx in X_test[:, 1]]))
-        labels_test = torch.FloatTensor(y_test)
-
-        # 特征归一化 - 正确避免数据泄露
-        # 计算训练集统计量
-        c_train_min = torch.min(c_features_train, dim=0)[0]
-        c_train_max = torch.max(c_features_train, dim=0)[0]
-        d_train_min = torch.min(d_features_train, dim=0)[0]
-        d_train_max = torch.max(d_features_train, dim=0)[0]
-
-        # 应用训练集统计量进行归一化
-        c_features_train_norm = (c_features_train - c_train_min) / (c_train_max - c_train_min + 1e-8)
-        d_features_train_norm = (d_features_train - d_train_min) / (d_train_max - d_train_min + 1e-8)
-
-        # 对测试集应用相同的变换
-        c_features_test_norm = (c_features_test - c_train_min) / (c_train_max - c_train_min + 1e-8)
-        d_features_test_norm = (d_features_test - d_train_min) / (d_train_max - d_train_min + 1e-8)
-
-        # 创建 MLP 模型参数
-        hidden_dims = [int(dim) for dim in args.hidden_dims.split(',')]
-
-        # 自定义 MLP 模型 (不使用图结构)
-        class MLPModel(nn.Module):
-            def __init__(self, c_feature_dim, d_feature_dim, hidden_dims, dropout=0.2):
-                super(MLPModel, self).__init__()
-
-                self.c_projection = nn.Linear(c_feature_dim, hidden_dims[0])
-                self.d_projection = nn.Linear(d_feature_dim, hidden_dims[0])
-
-                # 构建 MLP
-                layers = []
-                input_dim = hidden_dims[0] * 2  # 拼接 circRNA 和药物特征
-
-                for i in range(1, len(hidden_dims)):
-                    layers.append(nn.Linear(input_dim, hidden_dims[i]))
-                    layers.append(nn.ReLU())
-                    layers.append(nn.BatchNorm1d(hidden_dims[i]))
-                    layers.append(nn.Dropout(dropout))
-                    input_dim = hidden_dims[i]
-
-                layers.append(nn.Linear(input_dim, 1))
-                layers.append(nn.Sigmoid())
-
-                self.mlp = nn.Sequential(*layers)
-
-            def forward(self, c_features, d_features):
-                # 投影特征
-                c_proj = self.c_projection(c_features)
-                d_proj = self.d_projection(d_features)
-
-                # 拼接特征
-                combined = torch.cat([c_proj, d_proj], dim=1)
-
-                # 通过 MLP
-                output = self.mlp(combined)
-
-                return output.squeeze()
-
-        model = MLPModel(CF.shape[1], DF.shape[1], hidden_dims, args.dropout).to(device)
-
-        print(f"模型参数总量: {sum(p.numel() for p in model.parameters())}")
-
-        # 优化器
-        optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-
-        # 学习率调度器
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', factor=0.5, patience=10)
-
-        # 损失函数
-        loss_fn = nn.BCELoss()
-
-        # 将数据移至设备
-        c_features_train_norm = c_features_train_norm.to(device)
-        d_features_train_norm = d_features_train_norm.to(device)
-        labels_train = labels_train.to(device)
-
-        c_features_test_norm = c_features_test_norm.to(device)
-        d_features_test_norm = d_features_test_norm.to(device)
-        labels_test = labels_test.to(device)
-
-        # 训练循环
-        best_val_metrics = None
-        best_model_state = None
-        best_epoch = 0
-        no_improve = 0
-        train_losses = []
-        val_losses = []
-
-        for epoch in range(args.n_epochs):
-            # 训练模式
-            model.train()
-
-            # 前向传播
-            outputs = model(c_features_train_norm, d_features_train_norm)
-
-            # 计算损失
-            loss = loss_fn(outputs, labels_train)
-            train_losses.append(loss.item())
-
-            # 反向传播
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            # 评估模式
-            model.eval()
-
-            with torch.no_grad():
-                # 前向传播
-                test_outputs = model(c_features_test_norm, d_features_test_norm)
-
-                # 计算损失
-                test_loss = loss_fn(test_outputs, labels_test)
-                val_losses.append(test_loss.item())
-
-                # 计算指标
-                test_outputs_np = test_outputs.cpu().numpy()
-                test_labels_np = labels_test.cpu().numpy()
-
-                # 二分类阈值
-                test_preds = (test_outputs_np > 0.5).astype(int)
-
-                accuracy = accuracy_score(test_labels_np, test_preds)
-                precision = precision_score(test_labels_np, test_preds)
-                recall = recall_score(test_labels_np, test_preds)
-                f1 = f1_score(test_labels_np, test_preds)
-                roc_auc = roc_auc_score(test_labels_np, test_outputs_np)
-                pr_auc = average_precision_score(test_labels_np, test_outputs_np)
-
-                val_metrics = {
-                    'loss': test_loss.item(),
-                    'accuracy': accuracy,
-                    'precision': precision,
-                    'recall': recall,
-                    'f1': f1,
-                    'roc_auc': roc_auc,
-                    'pr_auc': pr_auc
-                }
-
-                # 更新学习率
-                scheduler.step(val_metrics['f1'])
-
-                # 保存最佳模型
-                if best_val_metrics is None or val_metrics['f1'] > best_val_metrics['f1']:
-                    best_val_metrics = val_metrics
-                    best_model_state = model.state_dict().copy()
-                    best_epoch = epoch
-                    no_improve = 0
-                else:
-                    no_improve += 1
-
-                # 早停
-                if no_improve >= args.patience:
-                    print(f"早停: {args.patience}个epoch内无改进")
-                    break
-
-                if (epoch + 1) % 10 == 0 or epoch == 0:
-                    print(
-                        f"Epoch {epoch + 1}/{args.n_epochs} | 训练损失: {loss.item():.4f} | 验证损失: {val_metrics['loss']:.4f} | "
-                        f"F1分数: {val_metrics['f1']:.4f} | ROC AUC: {val_metrics['roc_auc']:.4f}")
-
-        # 记录最佳结果
-        fold_metrics.append(best_val_metrics)
-
-        # 保存最佳模型
-        torch.save(best_model_state, f"{result_dir}/model_fold_{fold + 1}.pt")
-
-        # 写入结果文件
-        with open(result_file, 'a') as f:
-            f.write(f"{'=' * 10} Fold {fold + 1} 结果 {'=' * 10}\n")
-            f.write(f"最佳Epoch: {best_epoch + 1}\n")
-            f.write(f"Accuracy\tPrecision\tRecall\tF1\tROCAUC\tPRAUC\n")
-            f.write(f"{best_val_metrics['accuracy']:.4f}\t{best_val_metrics['precision']:.4f}\t")
-            f.write(f"{best_val_metrics['recall']:.4f}\t{best_val_metrics['f1']:.4f}\t")
-            f.write(f"{best_val_metrics['roc_auc']:.4f}\t{best_val_metrics['pr_auc']:.4f}\n\n")
-
-    # 计算平均指标
-    avg_metrics = {
-        'accuracy': np.mean([m['accuracy'] for m in fold_metrics]),
-        'precision': np.mean([m['precision'] for m in fold_metrics]),
-        'recall': np.mean([m['recall'] for m in fold_metrics]),
-        'f1': np.mean([m['f1'] for m in fold_metrics]),
-        'roc_auc': np.mean([m['roc_auc'] for m in fold_metrics]),
-        'pr_auc': np.mean([m['pr_auc'] for m in fold_metrics])
-    }
-
-    # 计算标准差
-    std_metrics = {
-        'accuracy': np.std([m['accuracy'] for m in fold_metrics]),
-        'precision': np.std([m['precision'] for m in fold_metrics]),
-        'recall': np.std([m['recall'] for m in fold_metrics]),
-        'f1': np.std([m['f1'] for m in fold_metrics]),
-        'roc_auc': np.std([m['roc_auc'] for m in fold_metrics]),
-        'pr_auc': np.std([m['pr_auc'] for m in fold_metrics])
-    }
-
-    # 写入平均结果
-    with open(result_file, 'a') as f:
-        f.write(f"{'=' * 10} 平均结果 {'=' * 10}\n")
-        f.write(f"指标\t平均值\t标准差\n")
-        f.write(f"Accuracy\t{avg_metrics['accuracy']:.4f}\t{std_metrics['accuracy']:.4f}\n")
-        f.write(f"Precision\t{avg_metrics['precision']:.4f}\t{std_metrics['precision']:.4f}\n")
-        f.write(f"Recall\t{avg_metrics['recall']:.4f}\t{std_metrics['recall']:.4f}\n")
-        f.write(f"F1\t{avg_metrics['f1']:.4f}\t{std_metrics['f1']:.4f}\n")
-        f.write(f"ROCAUC\t{avg_metrics['roc_auc']:.4f}\t{std_metrics['roc_auc']:.4f}\n")
-        f.write(f"PRAUC\t{avg_metrics['pr_auc']:.4f}\t{std_metrics['pr_auc']:.4f}\n\n")
-
-    # 记录结束时间
-    end_time = time.time()
-    total_time = end_time - start_time
-    hours, remainder = divmod(total_time, 3600)
-    minutes, seconds = divmod(remainder, 60)
-
-    # 写入时间信息
-    with open(result_file, 'a') as f:
-        f.write(f"{'=' * 10} 运行时间 {'=' * 10}\n")
-        f.write(f"总运行时间: {int(hours)}小时 {int(minutes)}分钟 {seconds:.2f}秒\n")
-        f.write(f"开始时间: {datetime.fromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"结束时间: {datetime.fromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S')}\n")
-
-    # 绘制指标图
-    plot_metrics(result_file, plots_dir)
-    plot_loss_curves(train_losses, val_losses, plots_dir, 'loss_curves.jpg')
-
-    # 优化后的打印输出
-    print(f"\n{'=' * 50}")
-    print(" MLP 基准模型训练完成 ".center(50, '='))
-    print(f"{'=' * 50}")
-    print(f"结果保存路径: {result_dir}")
-    print(f"\n平均指标:")
-    print(f"  Accuracy: {avg_metrics['accuracy']:.4f} ± {std_metrics['accuracy']:.4f}")
-    print(f"  Precision: {avg_metrics['precision']:.4f} ± {std_metrics['precision']:.4f}")
-    print(f"  Recall: {avg_metrics['recall']:.4f} ± {std_metrics['recall']:.4f}")
-    print(f"  F1: {avg_metrics['f1']:.4f} ± {std_metrics['f1']:.4f}")
-    print(f"  ROC AUC: {avg_metrics['roc_auc']:.4f} ± {std_metrics['roc_auc']:.4f}")
-    print(f"  PR AUC: {avg_metrics['pr_auc']:.4f} ± {std_metrics['pr_auc']:.4f}")
-    print(f"\n总运行时间: {int(hours)}小时 {int(minutes)}分钟 {seconds:.2f}秒")
-
 
 def main():
-    """主函数 - 解析命令行参数并开始训练"""
-    parser = argparse.ArgumentParser(description="CircRNA-Drug关联预测模型训练")
-
-    # 使用model.py中的函数更新命令行参数
-    parser = update_train_arguments(parser)
-
-    # 解析参数
-    args = parser.parse_args()
+    """主函数 - 使用固定配置训练 CDGT 模型（配置已锁定，不可通过命令行修改）"""
+    # 所有超参数均已固定为论文最终设置
+    args = SimpleNamespace(
+        dataset_type='Resistance',
+        n_epochs=200,
+        lr=0.0002,
+        weight_decay=1e-5,
+        n_folds=5,
+        seed=51,
+        patience=20,
+        dropout=0.2,
+        homo_num_layers=2,
+        hetero_num_layers=2,
+        homo_num_heads=4,
+        hetero_num_heads=32,
+        prediction_method='bilinear',
+        circ_threshold=0.4034,
+        drug_threshold=0.06,
+        use_structure_pe=True,
+        use_homo_features=True,
+        use_hetero_features=True,
+        projection_dim=512,
+        homo_hidden_dim=128,
+        homo_model='gat',
+        hetero_model='BipartiteGraphTransformer',
+        fusion_method='uncertainty',
+        sage_aggr='mean',
+    )
 
     # 打印参数
-    print(f"\n{'=' * 20} 训练参数 {'=' * 20}")
+    print(f"\n{'=' * 20} 训练参数（固定配置） {'=' * 20}")
     for arg in vars(args):
         print(f"  {arg}: {getattr(args, arg)}")
 
-    # 选择模型进行训练
-    if args.model == 'CDGT':
-        train_cdgt_model(args)
-    elif args.model == 'MLP':
-        train_baseline_mlp(args)
-    else:
-        print(f"错误: 未知的模型 {args.model}")
+    # 训练 CDGT 模型
+    train_cdgt_model(args)
 
 
 if __name__ == "__main__":
