@@ -199,25 +199,18 @@ def train_cdgt_model(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"使用设备: {device}")
 
-    # 模型参数（保持原有配置）
+    # 模型参数（固定为论文主模型配置）
     model_params = {
         'c_feature_dim': CF.shape[1],
         'd_feature_dim': DF.shape[1],
         'projection_dim': args.projection_dim,
         'homo_hidden_dim': args.homo_hidden_dim,
-        'homo_model': args.homo_model,
-        'hetero_model': args.hetero_model,
-        'fusion_method': args.fusion_method,
         'homo_num_layers': args.homo_num_layers,
         'hetero_num_layers': args.hetero_num_layers,
         'homo_num_heads': args.homo_num_heads,
         'hetero_num_heads': args.hetero_num_heads,
         'dropout': args.dropout,
-        'prediction_method': args.prediction_method,
         'use_structure_pe': args.use_structure_pe,
-        'sage_aggr': args.sage_aggr,
-        'use_homo_features': args.use_homo_features,
-        'use_hetero_features': args.use_hetero_features
     }
 
     # 创建结果文件
